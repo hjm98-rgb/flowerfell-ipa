@@ -1,0 +1,7 @@
+name: smoke-macos
+on: workflow_dispatch
+jobs:
+  hello:
+    runs-on: macos-14
+    steps:
+      - run: uname -a; xcodebuild -version; ls /Applications | grep -i xcode
