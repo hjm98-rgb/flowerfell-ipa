@@ -1,0 +1,9 @@
+name: smoke-macos2
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: macos-13
+    steps: [{run: "sw_vers"}]
+  b:
+    runs-on: macos-latest
+    steps: [{run: "sw_vers"}]
