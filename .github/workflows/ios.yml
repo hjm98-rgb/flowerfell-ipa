@@ -54,14 +54,15 @@ jobs:
           GAMEDIR=$(find game_unz -maxdepth 2 -type d -name game | head -1)
           test -n "$GAMEDIR"
           PROJ=$(dirname "$GAMEDIR")
+          PROJ=$(cd "$PROJ" && pwd)
           echo "PROJ=$PROJ"
           ls -la "$PROJ"
-          echo "$PROJ" > /tmp/projdir
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
 
       - name: 创建 Xcode 工程 (ios_create)
         run: |
           set -euxo pipefail
-          PROJ=$(cat /tmp/projdir)
+          PROJ="${{ env.PROJ }}"
           mkdir -p /tmp/xcode
           cd sdk
           ./renpy.sh launcher ios_create "$PROJ" /tmp/xcode || {
