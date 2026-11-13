@@ -59,6 +59,12 @@ jobs:
           ls -la "$PROJ"
           echo "PROJ=$PROJ" >> "$GITHUB_ENV"
 
+      - name: 注入触摸补丁
+        run: |
+          set -euxo pipefail
+          cp ff_ios_touch.rpy "${{ env.PROJ }}/game/zz_ios_touch.rpy"
+          ls -la "${{ env.PROJ }}/game/" | tail -5
+
       - name: 创建 Xcode 工程 (ios_create)
         run: |
           set -euxo pipefail
@@ -93,6 +99,9 @@ jobs:
           echo "APP=$APP"
           rm -rf Payload && mkdir -p Payload
           cp -R "$APP" Payload/
+          # 剔除 Windows/Linux 动态库与 exe，避免无用加载
+          rm -rf Payload/*.app/base/lib Payload/*.app/base/FlowerFell.exe || true
+          du -sh Payload/*.app
           zip -qry FlowerFell-unsigned.ipa Payload
           ls -lh FlowerFell-unsigned.ipa
           /usr/bin/codesign -dv Payload/*.app 2>&1 || true
