@@ -63,14 +63,11 @@ jobs:
         run: |
           set -euxo pipefail
           PROJ="${{ env.PROJ }}"
-          mkdir -p /tmp/xcode
           cd sdk
-          ./renpy.sh launcher ios_create "$PROJ" /tmp/xcode || {
-             echo "=== ios_create 失败，尝试 GUI 初始化 ==="
-             ./renpy.sh launcher quit || true
-             ./renpy.sh launcher ios_create "$PROJ" /tmp/xcode
-          }
+          rm -rf /tmp/xcode
+          printf 'yes\n' | ./renpy.sh launcher ios_create "$PROJ" /tmp/xcode
           echo "--- /tmp/xcode:"; ls -la /tmp/xcode
+          find /tmp/xcode -maxdepth 3 -name "*.xcodeproj"
 
       - name: 编译 (xcodebuild, 不签名)
         run: |
