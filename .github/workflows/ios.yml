@@ -1,0 +1,110 @@
+name: build-unsigned-ipa
+
+on:
+  workflow_dispatch:
+    inputs:
+      game_url:
+        description: "游戏压缩包直链"
+        required: true
+        default: "https://aka.doubaocdn.com/s/GnREcw1xVd"
+      renpy_version:
+        description: "Ren'Py SDK 版本"
+        required: true
+        default: "8.3.7"
+      xcode:
+        description: "Xcode 版本目录名 (见 /Applications)"
+        required: true
+        default: "Xcode.app"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      V: ${{ inputs.renpy_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          sw_vers
+          ls /Applications | grep -i xcode
+          if [ -d "/Applications/${{ inputs.xcode }}" ]; then sudo xcode-select -s "/Applications/${{ inputs.xcode }}"; fi
+          xcodebuild -version
+
+      - name: 下载 Ren'Py SDK 与 renios
+        run: |
+          set -euxo pipefail
+          curl -L --retry 3 --retry-delay 5 -o sdk.zip "https://www.renpy.org/dl/$V/renpy-$V-sdk.zip"
+          curl -L --retry 3 --retry-delay 5 -o renios.zip "https://www.renpy.org/dl/$V/renpy-$V-renios.zip"
+          unzip -q sdk.zip
+          mv "renpy-$V-sdk" sdk
+          mkdir -p renios_unz && unzip -q renios.zip -d renios_unz
+          echo "--- renios_unz:"; ls -la renios_unz
+          if [ -d renios_unz/renios ]; then cp -R renios_unz/renios sdk/renios; else cp -R renios_unz sdk/renios; fi
+          echo "--- sdk/renios:"; ls -la sdk/renios | head -30
+          echo "--- lib:"; ls sdk/lib
+
+      - name: 取游戏并还原 Ren'Py 工程
+        run: |
+          set -euxo pipefail
+          curl -L --retry 3 --retry-delay 5 -o game.zip "${{ inputs.game_url }}"
+          ls -l game.zip
+          mkdir -p game_unz && unzip -q game.zip -d game_unz
+          GAMEDIR=$(find game_unz -maxdepth 2 -type d -name game | head -1)
+          test -n "$GAMEDIR"
+          PROJ=$(dirname "$GAMEDIR")
+          echo "PROJ=$PROJ"
+          ls -la "$PROJ"
+          echo "$PROJ" > /tmp/projdir
+
+      - name: 创建 Xcode 工程 (ios_create)
+        run: |
+          set -euxo pipefail
+          PROJ=$(cat /tmp/projdir)
+          mkdir -p /tmp/xcode
+          cd sdk
+          ./renpy.sh launcher ios_create "$PROJ" /tmp/xcode || {
+             echo "=== ios_create 失败，尝试 GUI 初始化 ==="
+             ./renpy.sh launcher quit || true
+             ./renpy.sh launcher ios_create "$PROJ" /tmp/xcode
+          }
+          echo "--- /tmp/xcode:"; ls -la /tmp/xcode
+
+      - name: 编译 (xcodebuild, 不签名)
+        run: |
+          set -euxo pipefail
+          cd /tmp/xcode
+          PROJ_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+          test -n "$PROJ_FILE"
+          echo "PROJECT=$PROJ_FILE"
+          xcodebuild -list -project "$PROJ_FILE" || true
+          SCHEME=$(xcodebuild -list -json -project "$PROJ_FILE" | python3 -c "import sys,json;d=json.load(sys.stdin);print((d['project'].get('schemes') or d['project']['targets'])[0])")
+          echo "SCHEME=$SCHEME"
+          xcodebuild -project "$PROJ_FILE" -scheme "$SCHEME" -configuration Release \
+            -sdk iphoneos -derivedDataPath /tmp/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+            -verbose 2>&1 | tail -n 400
+
+      - name: 打包 IPA
+        run: |
+          set -euxo pipefail
+          APP=$(find /tmp/dd/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          test -n "$APP"
+          echo "APP=$APP"
+          rm -rf Payload && mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry FlowerFell-unsigned.ipa Payload
+          ls -lh FlowerFell-unsigned.ipa
+          /usr/bin/codesign -dv Payload/*.app 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Payload/*.app/Info.plist
+          shasum -a 256 FlowerFell-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowerFell-unsigned-ipa
+          path: |
+            FlowerFell-unsigned.ipa
+          if-no-files-found: warn
